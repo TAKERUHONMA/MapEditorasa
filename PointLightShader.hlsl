@@ -8,25 +8,29 @@ SamplerState g_sampler : register(s0); //サンプラー
 // コンスタントバッファ
 // DirectX 側から送信されてくる、ポリゴン頂点以外の諸情報の定義
 //───────────────────────────────────────
-cbuffer gModel:register(b0)
+cbuffer gModel : register(b0)
 {
     float4x4 matWVP; // ワールド・ビュー・プロジェクションの合成行列
-    float4x4 matW; //ワールド変換マトリクス
+    float4x4 matW; // ワールド変換マトリクス
     float4x4 matNormal; // ワールド行列
-    float4 diffuseColor; //マテリアルの色＝拡散反射係数tt
+    float4 diffuseColor; // マテリアルの色＝拡散反射係数
     float4 factor;
     float4 ambientColor;
     float4 specularColor;
     float4 shininess;
 
-    bool isTextured; //テクスチャーが貼られているかどうか
+    bool isTextured; // テクスチャーが貼られているかどうか
+    bool useLambert; // Lambert反射モデルを使用するか（true: Lambert, false: Phong）
 };
 
-cbuffer gStage:register(b1)
+cbuffer gStage : register(b1)
 {
-    float4 lightPosition;
-    float4 eyePosition;
+    float4 lightPosition; // 点光源の位置
+    float4 lightDirection; // 平行光源の方向
+    float4 eyePosition; // カメラの位置
+    bool isPointLight; // true → 点光源, false → 平行光源
 };
+
 
 //───────────────────────────────────────
 // 頂点シェーダー出力＆ピクセルシェーダー入力データ構造体
@@ -76,30 +80,52 @@ float4 PS(VS_OUT inData) : SV_Target
     float4 diffuse;
     float4 ambient;
     float4 ambentSource = { 0.2, 0.2, 0.2, 1.0 };
-    float3 dir = normalize(lightPosition.xyz - inData.wpos.xyz); //ピクセル位置のポリゴンの3次元座標＝wpos
-    //inData.normal.z = 0;
-    float color = saturate(dot(normalize(inData.normal.xyz), dir));
-    float3 k = { 0.2f, 0.2f, 1.0f };
-    float len = length(lightPosition.xyz - inData.wpos.xyz);
-    float dTerm = 1.0 / (k.x + k.y*len + k.z*len*len);
     
-    float4 R = reflect(normalize(inData.normal), normalize(float4(dir, 1.0)));
-    float4 specular = pow(saturate(dot(R, normalize(inData.eyev))), shininess) * specularColor;
-    
-    if (isTextured == false)
-    {
-        diffuse =  diffuseColor * color * dTerm * factor.x;
-        ////diffuse = float4(1.0, 1.0, 1.0, 1.0);
-        ambient =  diffuseColor * ambentSource;
+    float color;
+    float4 specular = float4(0, 0, 0, 0);
 
+    if (isPointLight)
+    {
+        // ◆◆◆ 点光源の場合 ◆◆◆
+        float3 dir = normalize(lightPosition.xyz - inData.wpos.xyz);
+
+        // 距離減衰（点光源特有）
+        float3 k = { 0.2f, 0.2f, 1.0f };
+        float len = length(lightPosition.xyz - inData.wpos.xyz);
+        float dTerm = 1.0 / (k.x + k.y * len + k.z * len * len);
+
+        color = saturate(dot(normalize(inData.normal.xyz), dir)) * dTerm;
+
+        // 鏡面反射（スペキュラ）
+        float3 R = reflect(-dir, normalize(inData.normal.xyz));
+        specular = pow(saturate(dot(R, normalize(inData.eyev.xyz))), shininess.x) * specularColor;
     }
     else
     {
-        diffuse =   g_texture.Sample(g_sampler, inData.uv) * color * dTerm*factor.x;
-        ambient = g_texture.Sample(g_sampler, inData.uv) * ambentSource;
+        // ◆◆◆ 平行光源の場合 ◆◆◆
+        float3 dir = normalize(lightDirection.xyz);
 
+        color = saturate(dot(normalize(inData.normal.xyz), dir));
+
+        // 鏡面反射（スペキュラ）
+        float3 reflectDir = reflect(-dir, normalize(inData.normal.xyz));
+        float3 viewDir = normalize(inData.eyev.xyz);
+        float spec = pow(saturate(dot(reflectDir, viewDir)), shininess.x);
+        specular = spec * specularColor;
     }
 
-    return diffuse +  specular + ambient;
-    //return specular + ambient;
+    // テクスチャーの有無で処理を分ける
+    if (isTextured == false)
+    {
+        diffuse = diffuseColor * color * factor.x;
+        ambient = diffuseColor * ambentSource;
+    }
+    else
+    {
+        diffuse = g_texture.Sample(g_sampler, inData.uv) * color * factor.x;
+        ambient = g_texture.Sample(g_sampler, inData.uv) * ambentSource;
+    }
+
+    // 最終色 = 拡散光 + 鏡面反射 + 環境光
+    return diffuse + specular + ambient;
 }

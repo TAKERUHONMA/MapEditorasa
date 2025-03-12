@@ -6,7 +6,8 @@
 #include "imgui/imgui_impl_dx11.h"
 #include "imgui/imgui_impl_win32.h"
 
-
+bool isPointLight = true; // デフォルトは点光源
+bool useLambert = true;
 
 void Stage::InitConstantBuffer()
 {
@@ -56,6 +57,30 @@ void Stage::Initialize()
 //更新
 void Stage::Update()
 {
+    // 光源の位置を移動させる処理（変更なし）
+    static bool keyPressed = false;
+    if (Input::IsKey(DIK_SPACE))
+    {
+        if (!keyPressed)
+        {
+            isPointLight = !isPointLight;  // 光源タイプの切り替え
+            keyPressed = true;
+        }
+    }
+    else
+    {
+        keyPressed = false;
+    }
+
+    if (Input::IsKey(DIK_L))   // LキーでLambert反射モデルに変更
+    {
+        useLambert = true;
+    }
+    if (Input::IsKey(DIK_P))   // PキーでPhong反射モデルに変更
+    {
+        useLambert = false;
+    }
+
     transform_.rotate_.y += 0.5f;
     if (Input::IsKey(DIK_A))
     {
@@ -94,53 +119,47 @@ void Stage::Update()
         Direct3D::SetLightPos(p);
     }
 
-    //コンスタントバッファの設定と、シェーダーへのコンスタントバッファのセットを書くよ
-    CONSTBUFFER_STAGE cb;
+    // 定数バッファを更新
+    CONSTBUFFER_STAGE cb = {};
     cb.lightPosition = Direct3D::GetLightPos();
+    cb.lightDirection = XMFLOAT4(0.0f, -1.0f, 0.0f, 0.0f);
     XMStoreFloat4(&cb.eyePosition, Camera::GetPosition());
-    
-    D3D11_MAPPED_SUBRESOURCE pdata;
-    Direct3D::pContext_->Map(pConstantBuffer_, 0, D3D11_MAP_WRITE_DISCARD, 0, &pdata);	// GPUからのデータアクセスを止める
-    memcpy_s(pdata.pData, pdata.RowPitch, (void*)(&cb), sizeof(cb));	// データを値を送る
-    Direct3D::pContext_->Unmap(pConstantBuffer_, 0);	//再開
+    cb.isPointLight = isPointLight ? 1 : 0;
 
-    //コンスタントバッファ
-    Direct3D::pContext_->VSSetConstantBuffers(1, 1, &pConstantBuffer_);	//頂点シェーダー用	
-    Direct3D::pContext_->PSSetConstantBuffers(1, 1, &pConstantBuffer_);	//ピクセルシェーダー用
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+    Direct3D::pContext_->Map(pConstantBuffer_, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    memcpy(mappedResource.pData, &cb, sizeof(cb));
+    Direct3D::pContext_->Unmap(pConstantBuffer_, 0);
 
-
+    Direct3D::pContext_->VSSetConstantBuffers(1, 1, &pConstantBuffer_);
+    Direct3D::pContext_->PSSetConstantBuffers(1, 1, &pConstantBuffer_);
 }
 
 //描画
 void Stage::Draw()
 {
 
+    // 光源を表示
     Transform ltr;
-    ltr.position_ = { Direct3D::GetLightPos().x,Direct3D::GetLightPos().y,Direct3D::GetLightPos().z };
-    ltr.scale_ = { 0.1,0.1,0.1 };
+    ltr.position_ = { Direct3D::GetLightPos().x, Direct3D::GetLightPos().y, Direct3D::GetLightPos().z };
+    ltr.scale_ = { 0.1f, 0.1f, 0.1f };
     Model::SetTransform(hModel_, ltr);
     Model::Draw(hModel_);
 
-
+    // 部屋、バニーなどの描画処理
     Transform tr;
     tr.position_ = { 0, 0, 0 };
-    //tr.scale_ = { 5.0f, 5.0f, 5.0f };
-    tr.rotate_ = { 0,0,0 };
-    //Model::SetTransform(hGround, tr);
-    //Model::Draw(hGround);
-
     Model::SetTransform(hRoom_, tr);
     Model::Draw(hRoom_);
 
     static Transform tbunny;
-    tbunny.scale_ = { 0.25,0.25,0.25 };
-    tbunny.position_ = { 0, 0.5, 0 };
-    tbunny.rotate_.y += 0.1;
+    tbunny.scale_ = { 0.25f, 0.25f, 0.25f };
+    tbunny.position_ = { 0, 0.5f, 0 };
+    tbunny.rotate_.y += 0.1f;
     Model::SetTransform(hBunny_, tbunny);
     Model::Draw(hBunny_);
 
     ImGui::Text("Rotate:%.3f", tbunny.rotate_.y);
-
 }
 
 //開放

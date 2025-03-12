@@ -3,9 +3,13 @@
 
 struct CONSTBUFFER_STAGE
 {
-    XMFLOAT4 lightPosition; //光源位置
-    XMFLOAT4 eyePosition;//視点の位置
+    XMFLOAT4 lightPosition;
+    XMFLOAT4 lightDirection;
+    XMFLOAT4 eyePosition;
+    int isPointLight;
+    float padding[3]; 
 };
+
 
 //◆◆◆を管理するクラス
 class Stage : public GameObject
